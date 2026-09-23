@@ -103,8 +103,14 @@ pub mod audio_player {
                     if let Some(buf) = &mut sample_buf {
                         buf.copy_interleaved_ref(audio_buf);
                         let samples: &[f32] = buf.samples();
+                        let mut count = 0;
                         for &s in samples {
+                            count += 1;
+                            if count % 2 == 0 {
+                                continue;
+                            }
                             while producer.try_push(s).is_err() {
+
                                 std::thread::sleep(std::time::Duration::from_millis(1));
                             }
                         }
