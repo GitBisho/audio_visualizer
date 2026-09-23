@@ -1,0 +1,22 @@
+PLANNING
+
+Requirements: 
+Glium
+Realfft
+cpal
+
+Pipeline:
+
+Input audio file -> interpret wave amplitude and wavelength from file -> convert to visual effects
+Simultaneously play audio file
+
+Render as just a window that takes a file at execution, PATH passed by OS
+
+Only intended usage will be audio playback
+
+We need to buffer audio samples, smooth signal data, make a real to complex transform for plottable data
+
+-memory efficient method of grabbing from a file 
+
+First, lets just try to play a file
+
