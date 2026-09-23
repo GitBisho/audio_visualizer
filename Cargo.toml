@@ -7,5 +7,5 @@ edition = "2024"
 glium = "*"
 realfft = "*"
 cpal = "*"
-symphonia = { version = "0.5", features = ["flac"] }
+symphonia = { version = "0.5" }
 ringbuf = "*"
