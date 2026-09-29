@@ -48,7 +48,7 @@ fn init_cpal(mut consumer: HeapCons<f32>) -> Result<cpal::Stream, Box<dyn std::e
 
     let config = supported_config.into();
     let stream = device.build_output_stream(
-        config, // build_output_stream takes &StreamConfig, not an owned one
+        config, 
         move |data: &mut [f32], _| {
             for sample in data.iter_mut() {
                 *sample = consumer.try_pop().unwrap_or(0.0);
@@ -57,7 +57,7 @@ fn init_cpal(mut consumer: HeapCons<f32>) -> Result<cpal::Stream, Box<dyn std::e
         move |err| eprintln!("{}", err),
         None,
     )?;
-
+    println!("Stream init");
     Ok(stream)
 }
 

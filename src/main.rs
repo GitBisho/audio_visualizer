@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rfft::convert_to_rfft(viz_rx, spectrum_for_fft);
     });
 
-    let path = "../03 - Rhymes Like Dimes.flac".to_string();
+    let path = "03 - Rhymes Like Dimes.flac".to_string();
     // Keep `_stream` alive for the whole program — call this on the main
     // thread directly (not inside another spawn) since cpal::Stream isn't
     // guaranteed Send on every platform, and play_file already spawns its

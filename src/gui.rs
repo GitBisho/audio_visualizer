@@ -22,8 +22,6 @@ const ATTACK: f32 = 0.5;   // how fast bars rise toward a louder value
 const RELEASE: f32 = 0.1;  // how fast bars fall toward a quieter value
 const HEIGHT_SCALE: f32 = 0.6; // overall vertical scale, tune to taste
 
-// Calibrated from observed magnitudes (after /512 normalization in rfft.rs).
-// If you didn't add that normalization, use db_min = 0.0, db_max = 45.0 instead.
 const DB_MIN: f32 = -50.0;
 const DB_MAX: f32 = -8.0;
 
@@ -48,15 +46,12 @@ impl eframe::App for VisualizerApp {
         let min_bin = 1.0_f32;
         let max_bin = (bin_count - 1).max(2) as f32;
 
-        // Step 1: raw log-spaced edges (floats)
         let mut raw_edges = Vec::with_capacity(BAR_COUNT + 1);
         for i in 0..=BAR_COUNT {
             let t = i as f32 / BAR_COUNT as f32;
             raw_edges.push(min_bin * (max_bin / min_bin).powf(t));
         }
 
-        // Step 2: force strictly increasing integer edges so no two bars
-        // ever read the exact same bin range (fixes bars "stuck together")
         let mut edges = vec![0usize; BAR_COUNT + 1];
         edges[0] = 1; // start just after DC bin
         for i in 1..=BAR_COUNT {
@@ -64,7 +59,6 @@ impl eframe::App for VisualizerApp {
             edges[i] = candidate.max(edges[i - 1] + 1).min(bin_count - 1);
         }
 
-        // Step 3: draw using guaranteed-distinct ranges
         for i in 0..BAR_COUNT {
             let start = edges[i];
             let end = edges[i + 1].max(start + 1).min(bin_count);
