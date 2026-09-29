@@ -9,3 +9,5 @@ realfft = "*"
 cpal = "*"
 symphonia = { version = "0.5" }
 ringbuf = "*"
+eframe = "*"
+egui = "*"

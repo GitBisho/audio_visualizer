@@ -1,20 +1,24 @@
-mod rfft;
-
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ringbuf::{HeapRb, HeapCons, HeapProd};
 use ringbuf::traits::{Consumer, Producer, Split};
 use cpal::SupportedStreamConfigRange;
+use std::sync::mpsc::Sender;
 
-pub fn play_file(path: String) -> Result<cpal::Stream, Box<dyn std::error::Error>> {
-    let rb = HeapRb::new(44100 * 2 * 2);
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::errors::Error as SymphoniaError;
+
+pub fn play_file(path: &String, tx: Sender<Vec<f32>>) -> Result<cpal::Stream, Box<dyn std::error::Error>> {
+    let rb = HeapRb::<f32>::new(44100 * 2 * 2);
     let (producer, consumer) = rb.split();
 
-    let (tx, rx)  = std::sync::mpsc::channel::<Vec<f32>>();
-
-    std::thread::spawn(move || {
-        rfft::convert_to_rfft(rx);
-    });
-
+    // decode_file runs on a spawned ('static) thread, so it can't borrow `path`
+    // from the caller's stack frame — clone it so the thread owns its copy.
+    let path = path.clone();
     std::thread::spawn(move || {
         if let Err(e) = decode_file(&path, producer, tx) {
             eprintln!("{}", e);
@@ -29,42 +33,34 @@ pub fn play_file(path: String) -> Result<cpal::Stream, Box<dyn std::error::Error
 
 fn init_cpal(mut consumer: HeapCons<f32>) -> Result<cpal::Stream, Box<dyn std::error::Error>> {
     let host = cpal::default_host();
-    let device = host.default_output_device().expect("No output device available"); 
+    let device = host.default_output_device().expect("No output device available");
     let file_sample_rate: u32 = 44100;
 
     let supported_configs: Vec<SupportedStreamConfigRange> = device.supported_output_configs()?.collect();
 
-    let supported_config = supported_configs.iter() 
+    let supported_config = supported_configs.iter()
         .find(|c: &&SupportedStreamConfigRange| {
             c.min_sample_rate() <= file_sample_rate && file_sample_rate <= c.max_sample_rate()
         })
+        .cloned()
         .map(|c| c.with_sample_rate(file_sample_rate))
         .unwrap_or_else(|| device.default_output_config().unwrap());
-    
+
     let config = supported_config.into();
-    let stream = device.build_output_stream(config,
+    let stream = device.build_output_stream(
+        config, // build_output_stream takes &StreamConfig, not an owned one
         move |data: &mut [f32], _| {
             for sample in data.iter_mut() {
-                *sample = consumer.try_pop().unwrap_or(0.0); 
+                *sample = consumer.try_pop().unwrap_or(0.0);
             }
         },
         move |err| eprintln!("{}", err),
         None,
     )?;
-         
 
     Ok(stream)
 }
 
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::errors::Error as SymphoniaError;
-use std::sync::mpsc::Sender;
 fn decode_file(path: &String, mut producer: HeapProd<f32>, viz_buf: Sender<Vec<f32>>) -> Result<(), Box<dyn std::error::Error>> {
     let file = std::fs::File::open(&path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -85,19 +81,21 @@ fn decode_file(path: &String, mut producer: HeapProd<f32>, viz_buf: Sender<Vec<f
         .make(&track.codec_params, &DecoderOptions::default())?;
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
     let track_id = track.id;
+
     loop {
         let packet = match format.next_packet() {
             Ok(packet) => packet,
             Err(SymphoniaError::IoError(ref e))
                 if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-                { break; }, 
+            {
+                break;
+            }
             Err(e) => return Err(e.into()),
         };
 
         if packet.track_id() != track_id {
             continue;
         }
-        
 
         match decoder.decode(&packet) {
             Ok(audio_buf) => {
@@ -111,7 +109,14 @@ fn decode_file(path: &String, mut producer: HeapProd<f32>, viz_buf: Sender<Vec<f
                 if let Some(buf) = &mut sample_buf {
                     buf.copy_interleaved_ref(audio_buf);
                     let samples: &[f32] = buf.samples();
-                    if viz_buf.send(samples.to_vec()).is_err() {
+
+                    let channels = 2; // or read dynamically from spec.channels.count()
+                    let mono: Vec<f32> = samples
+                        .chunks_exact(channels)
+                        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+                        .collect();
+
+                    if viz_buf.send(mono).is_err() {
                         break;
                     }
 
@@ -122,18 +127,15 @@ fn decode_file(path: &String, mut producer: HeapProd<f32>, viz_buf: Sender<Vec<f
                             continue;
                         }
                         while producer.try_push(s).is_err() {
-
                             std::thread::sleep(std::time::Duration::from_millis(1));
-                        } 
+                        }
                     }
                 }
             }
             Err(SymphoniaError::DecodeError(_)) => continue,
             Err(e) => return Err(e.into()),
         }
+    }
 
-    };
     Ok(())
 }
-
-
